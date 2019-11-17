@@ -1,3 +1,53 @@
+function semanticnucleiHela = semanticsegmentNucleiHelaEM(selectNetwork,Hela) %Complete this part
+%--------------------------------------------------------------------------
+% Input         Hela                    : an image in Matlab format,it can be 2D/3D, double/uint8
+%               selactNetwork           : a deep neural network such as vgg16, ResNet18 or InceptionResNetv2
+%               previousSegmentation    : segmentation of slice above/below
+%               cannyStdValue           : the value of the Std of the canny edge detection
+% Output        nucleiHela              : a binary image with 1 for nuclei, 0 background
+%--------------------------------------------------------------------------
+% 
+% This code performs semantic segmentation for the nuclei of HeLa Cells that have been acquired with Serial Block Face 
+% Scanning Electron Microscopy at The Crick Institute by Chris Peddie, Anne Weston, Lucy Collinson and
+% provided to the Data Study Group at the Alan Turing Institute by Martin Jones.
+%
+% The code uses three pre-trained deep neural network that have been fine tuned to perform semantic segmentation to detect the nuclei
+% It assumes the following:
+%   1 A single cell is of interest and this cell has been cropped from a larger set
+%   2 The cell is in the centre of the image
+%   3 Although this is a 3D data set, the processing is done on 2D and then
+%   post-processed (majority vote) once the whole data stack has been processed.
+%   4 Some constants of intensity and size are required, thus this code may only
+%   work for the middle region of the cell and not for the top and bottom edges (it
+%   was tested for slices 70 to 135
+%
+%  ------------------------ CITATION ------------------------------------- 
+% Part of this work was published in Journal of Imaging:
+% Please cite as:
+% Cefa Karabag. Martin L. Jones, Christopher J. Peddie, Anne E. Weston, Lucy M. Collinson, and Constantino Carlos Reyes-Aldasoro.  
+% Segmentation and Modelling of the Nuclear Envelope of HeLa Cells Imaged with Serial Block Face Scanning Electron Microscopy.  
+% Journal of Imaging, 2019; 5(9):75.
+%
+% Usual disclaimer
+%
+%--------------------------------------------------------------------------
+%
+%     Copyright (C) 2019  Cefa Karabag
+%
+%     This code is free software: you can redistribute it and/or modify
+%     it under the terms of the GNU General Public License as published by
+%     the Free Software Foundation, version 3 of the License.
+%
+%     The code is distributed in the hope that it will be useful,
+%     but WITHOUT ANY WARRANTY; without even the implied warranty of
+%     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+%     GNU General Public License for more details.
+%
+%     The GNU General Public License is available at <http://www.gnu.org/licenses/>.
+%
+%--------------------------------------------------------------------------
+
+
 %% Download and install Neural Network Toolbox Model for ResNet18, Inception_ResNet_v2 or VGG-16 Network support package. 
 % To get started with transfer learning, try choosing one of the faster networks, such as SqueezeNet or GoogLeNet. 
 % Then iterate quickly and try out different settings such as data preprocessing steps and training options. 
@@ -5,7 +55,7 @@
 % and see if that improves your results. 
 
 %Prompt to enter a number
-selectNetwork = input('Enter a number: ');
+selectNetwork = input('Enter a number between 1 and 3: ');
 
 
 switch selectNetwork
@@ -24,9 +74,13 @@ end
 %% Load Hela Images
     dir0 = 'ROI_1656-6756-329/';
     dir1 =dir(strcat(dir0,'*.tiff'));
-    
-%%  Skip this part as this needs to be done only ONCE and all filtered images have been saved into Deep_Learning_ROI_1656-6756-329
-% Convert al Hela images into 2000x2000x3 so they can be fed into vgg16 as it expects those dimensions
+    %Hela = imread(strcat(dir0,dir1(118).name));
+    %Hela = double(Hela(:,:,1));
+
+    numSlices = size(dir1,1);
+
+%%  This part needs to be done only ONCE and all filtered images have been saved into Deep_Learning_ROI_1656-6756-329
+% Convert al Hela images into 2000x2000x3 so they can be fed into vgg16, ResNet18 and InceptionResNetv2 as they expect those dimensions
 % Filter all images and use repmat so all images have dimensions of 2000 x 2000 x 3
 
 for k=1: numSlices
@@ -45,11 +99,10 @@ clear currAxPos
 
 % Print/save Hela_to_Image_labeler(:,:,k) as TIFF images so you can export to Image labeler
 
-print('-dtiff','-r400', strcat('Deep_Learning_ROI_1656-6756-329_z000',num2str(k)));
+%print('-dtiff','-r400', strcat('Deep_Learning_ROI_1656-6756-329_z000',num2str(k)));
 
 % Use imwrite instead of print as this changes the image dimension
-%imwrite(Hela_LPF,['Deep_Learning_ROI_1656-6756-329_z000' num2str(t) '.tiff']);
-
+ imwrite(Hela_LPF,['Deep_Learning_ROI_1656-6756-329_z000' num2str(t) '.tiff']);
 end
 
 %% % Use imageDatastore to load Hela images. The imageDatastore enables you to efficiently load a large collection of 
@@ -82,6 +135,9 @@ cmap = HelaColorMap;
 
 %% 
 % Load HeLa Pixel-Labeled Images from Image Labeller 
+
+load('2019_11_14_Net.mat', 'gTruthLabelled') % This was exported from Image Labeler
+
 pxds = pixelLabelDatastore(gTruthLabelled);
 
 %% Create index to match GT and pxds
@@ -106,12 +162,12 @@ pxds = resizeHelaPixelLabels(pxds,labelFolder);
 %%
 %C = imresize(double(readimage(pxds,118)),[2000 2000]);
 %C = double(readimage(pxds,118));
-for k0= 150:160%numSlices
+for k0= 1:numSlices
     k1=index2(k0);
 C = double(readimage(pxds,k1));
 I = readimage(imds,index_px_gt(k1));
 
-
+% Show overlaid images to check the accuracy 
 B = labeloverlay(I,uint8(C),'ColorMap',cmap);
 %figure;
 imshow(B)
@@ -120,7 +176,7 @@ drawnow;
 pause(0.5)
 
 end
-pixelLabelColorbar(cmap,classes);
+pixelLabelColorbar(cmap,classes); % This adds the colorbar in the last figure
 
 %% Analyze Dataset Statistics
 % To see the distribution of class labels in the dataset use countEachLabel. 
@@ -358,6 +414,78 @@ end
 % as well as classes such as nucleus, restOfTheCell, and background. 
 % Additional data that includes more samples of the underrepresented 
 % classes might help improve the results.
+
+% Plot accuracy and Jaccard index for all three deep neural networks and compare them with the proposed unsupervised algorithm
+
+load('metricsComparison.mat', 'jin');
+
+x = 1:numSlices;
+
+%figure
+y1 = Jaccard_vgg16;%(1:231);% This is vgg16 Series Network
+%y2 = Jaccard_Our;
+y2 = jin; % This was obtained via the proposed algorithm
+y3 = Jaccard_ResNet18;%(1:231);% This is ResNet18 DAG Network (Network with Branches)
+y4 = Jaccard_Inception_ResNet_v2;%(1:231);% This is Inception_ResNet_v2 DAG Network (Network with Branches)
+
+figure
+plot(x,y2,'r',x,y1,'g',x,y3,'b',x,y4,'k','LineWidth',8)
+
+legend('Our algorithm', 'VGG16','ResNet18','InceptionResNetv2','Location','south', 'Fontsize',40)
+%legend('boxoff')
+%title('Jaccard index comparison between our algorithm and a deep learning algorithm-vgg16','Fontsize',12)
+xlabel('Slice number','Fontsize',40)
+ylabel('Jaccard index','Fontsize',40)
+xlim([25 265])
+grid on
+ax = gca;
+ax.LineWidth = 2;
+ax.GridLineStyle = '-';
+ax.GridColor = 'k';
+ax.GridAlpha = 1;
+axis([25 265 0 1])
+xticks(25:20:265)
+yticks(0:0.2:1)
+set(gca,'FontSize',40)
+
+% p(1).LineWidth = 20;
+% p(2).LineWidth = 20;
+
+
+%%
+
+
+load('metricsComparison.mat', 'Accuracy_Our'); % This was obtained via proposed algorithm
+
+x1 = 1:numSlices; 
+
+figure
+y11 = Accuracy_vgg16(1:231);% This is vgg16 Series Network
+y22 = Accuracy_Our;
+y33 = Accuracy_ResNet18(1:231);% This is ResNet18 DAG Network (Network with Branches)
+y44 = Accuracy_Inception_ResNet_v2(1:231);% This is Inception_ResNet_v2 Network (Network with Branches)
+figure
+plot(x1,y22,'r',x1,y11,'g',x1,y33,'b',x1,y44,'k','LineWidth',8)
+
+legend('Our algorithm', 'VGG16','ResNet18','InceptionResNetv2','Location','south', 'Fontsize',40)
+%legend('boxoff')
+%title('Jaccard index comparison between our algorithm and a deep learning algorithm-vgg16','Fontsize',12)
+xlabel('Slice number','Fontsize',40)
+ylabel('Accuracy','Fontsize',40)
+xlim([20 220])
+grid on
+ax = gca;
+ax.LineWidth = 2;
+ax.GridLineStyle = '-';
+ax.GridColor = 'k';
+ax.GridAlpha = 1;
+%GridStyle.LineWidth = 15;
+axis([20 230 0.85 1])
+xticks(20:30:230)
+yticks(0.85:0.05:1)
+set(gca,'FontSize',40)
+
+
 
 
 %% The following functions will be used during training of the deep learning algorithm
